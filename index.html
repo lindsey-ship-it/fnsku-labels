@@ -68,7 +68,7 @@
           let ty = y0 + pad + barcodeH + 2;
           doc.setFontSize(6.2);
 
-          // split description into 2 lines at comma
+          // --- description split into 2 lines ---
           const descParts = (desc || "").split(",");
           if (descParts[0]) {
             doc.text(descParts[0].trim(), x0+pad, ty);
@@ -88,6 +88,7 @@
           // Country
           if (country) {
             doc.text(country.toUpperCase(), x0+pad, ty);
+            ty += 3.2;
           }
 
           // NEW at bottom-left
@@ -102,3 +103,4 @@
   </script>
 </body>
 </html>
+
