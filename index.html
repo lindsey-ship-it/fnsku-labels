@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>FNSKU Labels</title>
+  <title>FNSKU Labels – 40 per A4</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
 </head>
@@ -19,16 +19,20 @@
       return { w: m ? parseFloat(m[1]) : fw, h: m ? parseFloat(m[2]) : fh };
     };
 
-    // Label config
+    // Label dimensions
     const label = parseSize(get("size","47.8x28.2mm"));
-    const margin = 10;       // mm page margin
-    const pad = 1.5;         // inner padding
-    const barcodeH = 11;     // mm
+    const cols = 4;
+    const rows = 10;
+    const marginX = (A4.w - cols * label.w) / 2;
+    const marginY = (A4.h - rows * label.h) / 2;
+
+    const pad = 1.5;       // mm padding inside label
+    const barcodeH = 11;   // mm barcode height
     const font = "helvetica";
 
     async function run(){
       const sku     = get("sku");
-      const desc    = get("desc");
+      const desc    = decodeURIComponent(get("desc"));
       const country = get("country");
       const fnsku   = get("fnsku");
 
@@ -36,10 +40,7 @@
       const doc = new jsPDF({ unit:"mm", format:"a4", compress:true });
       doc.setFont(font,"normal");
 
-      const cols = Math.floor((A4.w - 2*margin)/label.w);
-      const rows = Math.floor((A4.h - 2*margin)/label.h);
-
-      // Generate barcode with JsBarcode
+      // Generate barcode once
       const bc = document.getElementById("barcode");
       if (fnsku){
         JsBarcode(bc, fnsku, {
@@ -53,47 +54,46 @@
           height: Math.round(barcodeH*3.78)
         });
       }
+      const barcodeImg = fnsku ? bc.toDataURL("image/png") : null;
 
       for (let r=0;r<rows;r++){
         for (let c=0;c<cols;c++){
-          const x0 = margin + c*label.w;
-          const y0 = margin + r*label.h;
+          const x0 = marginX + c*label.w;
+          const y0 = marginY + r*label.h;
+          const centerX = x0 + label.w/2;
 
           // barcode
-          if (fnsku){
+          if (barcodeImg){
             const bw = label.w - 2*pad;
-            doc.addImage(bc.toDataURL("image/png"),"PNG",x0+pad,y0+pad,bw,barcodeH);
+            doc.addImage(barcodeImg,"PNG",x0+pad,y0+pad,bw,barcodeH);
           }
 
           let ty = y0 + pad + barcodeH + 2;
           doc.setFontSize(6.2);
 
-          // --- description split into 2 lines ---
+          // description split into 2 lines at comma, centered
           const descParts = (desc || "").split(",");
           if (descParts[0]) {
-            doc.text(descParts[0].trim(), x0+pad, ty);
+            doc.text(descParts[0].trim(), centerX, ty, { align:"center" });
             ty += 3.2;
           }
           if (descParts[1]) {
-            doc.text(descParts[1].trim(), x0+pad, ty);
+            doc.text(descParts[1].trim(), centerX, ty, { align:"center" });
             ty += 3.2;
           }
 
-          // SKU
+          // SKU centered
           if (sku) {
-            doc.text(sku, x0+pad, ty);
+            doc.text(sku, centerX, ty, { align:"center" });
             ty += 3.2;
           }
 
-          // Country
+          // Country bottom-right, NEW bottom-left
           if (country) {
-            doc.text(country.toUpperCase(), x0+pad, ty);
-            ty += 3.2;
+            doc.text(country.toUpperCase(), x0+label.w-pad, y0+label.h-2, { align:"right" });
           }
-
-          // NEW at bottom-left
           doc.setFontSize(6.5);
-          doc.text("NEW", x0+pad, y0+label.h - 2);
+          doc.text("NEW", x0+pad, y0+label.h-2);
         }
       }
 
