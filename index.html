@@ -2,235 +2,127 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>FNSKU Label Generator</title>
-  <!-- jsPDF (for PDF) and JsBarcode (for Code128) -->
+  <title>FNSKU Label Generator – Attachment Style</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
-  <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; padding: 16px; }
-    .hint { color:#555; font-size: 0.9rem; }
-  </style>
+  <style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:16px}</style>
 </head>
 <body>
-  <h3>Generating labels…</h3>
-  <p class="hint">If nothing downloads, check your URL parameters.</p>
-  <canvas id="barcode" width="600" height="220" style="display:none"></canvas>
-
+  <canvas id="barcode" width="1200" height="400" style="display:none"></canvas>
   <script>
-    // Helpers
-    const mmToPt = mm => (mm / 25.4) * 72;
-    const A4 = { w: 210, h: 297 }; // mm
+    const A4 = { w: 210, h: 297 };             // mm
+    const mm = n => n;                          // using jsPDF unit=mm, so identity
 
-    function getParam(name, def = "") {
-      const v = new URL(location.href).searchParams.get(name);
-      return (v === null || v === "") ? def : v;
+    // --- helpers ---
+    const get = (k, d="") => {
+      const v = new URL(location.href).searchParams.get(k);
+      return v === null || v === "" ? d : v;
+    };
+    const parseSize = (s, fw=47.8, fh=28.2) => {
+      const m = (s||"").match(/([\d.]+)\s*x\s*([\d.]+)\s*mm/i);
+      return { w: m ? parseFloat(m[1]) : fw, h: m ? parseFloat(m[2]) : fh };
+    };
+    const parseMm = (s, f=10) => {
+      const m = (s||"").match(/([\d.]+)\s*mm/i);
+      return m ? parseFloat(m[1]) : f;
+    };
+
+    // --- geometry + style (tuned to your sheet) ---
+    const cfg = {
+      label: parseSize(get("size","47.8x28.2mm")),    // tile size
+      margin: parseMm(get("margin","10mm")),          // page margins
+      pad: parseMm(get("pad","1.6mm")),               // inner padding
+      barcodeH: parseMm(get("bh","11.0mm")),          // barcode height
+      font: get("font","helvetica"),
+      skuSize: +get("skuSize","6.5"),                 // text sizes (mm-ish)
+      descSize: +get("descSize","5.8"),
+      ctySize: +get("ctySize","5.6"),
+      lineGap: +get("gap","2.6"),                     // tight line spacing
+      maxDescChars: +get("dmax","60")                 // trim to avoid wrapping
+    };
+
+    function oneLine(s, max) {
+      if (!s) return "";
+      return s.length > max ? s.slice(0, Math.max(0, max-1)) + "…" : s;
     }
 
-    function parseSize(mmText, fallbackW = 47.8, fallbackH = 28.2) {
-      const m = (mmText || "").match(/([\d.]+)\s*x\s*([\d.]+)\s*mm/i);
-      if (!m) return { w: fallbackW, h: fallbackH };
-      return { w: parseFloat(m[1]), h: parseFloat(m[2]) };
-    }
+    async function run() {
+      const sku     = get("sku");
+      const desc    = get("desc");
+      const country = get("country");
+      const fnsku   = get("fnsku");
 
-    function parseMargin(mmText, fallback = 10) {
-      const m = (mmText || "").match(/([\d.]+)\s*mm/i);
-      return m ? parseFloat(m[1]) : fallback;
-    }
-
-    async function makePdf() {
-      // Read params
-      const sku     = getParam("sku");
-      const desc    = getParam("desc");
-      const country = getParam("country");
-      const fnsku   = getParam("fnsku");
-      const sizeStr = getParam("size", "47.8x28.2mm");
-      const marginStr = getParam("margin", "10mm");
-
-      const { w: labelWmm, h: labelHmm } = parseSize(sizeStr);
-      const marginMm = parseMargin(marginStr);
-
-      // jsPDF in mm units
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF({ unit: "mm", format: "a4", compress: true });
+      doc.setFont(cfg.font, "normal");
 
-      // Grid calc
-      const cols = Math.max(1, Math.floor((A4.w - 2 * marginMm) / labelWmm));
-      const rows = Math.max(1, Math.floor((A4.h - 2 * marginMm) / labelHmm));
+      // grid
+      const cols = Math.max(1, Math.floor((A4.w - 2*cfg.margin) / cfg.label.w));
+      const rows = Math.max(1, Math.floor((A4.h - 2*cfg.margin) / cfg.label.h));
 
-      // Prepare barcode to canvas
-      const barcodeCanvas = document.getElementById("barcode");
+      // prepare barcode canvas
+      const bc = document.getElementById("barcode");
       if (fnsku) {
-        JsBarcode(barcodeCanvas, fnsku, {
+        JsBarcode(bc, fnsku, {
           format: "code128",
-          displayValue: true,
+          displayValue: true,      // human-readable text beneath bars
+          font: "Helvetica",
           fontSize: 10,
-          margin: 0
+          textMargin: 2,
+          margin: 0,
+          height: Math.round(cfg.barcodeH * 3.78) // px ~ mm*3.78 (visual fidelity)
         });
       }
 
-      // Draw labels
-      const pad = 2; // mm inner padding
-      const fontSize = 6; // compact text
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(fontSize);
+      // draw all tiles
+      for (let r=0; r<rows; r++){
+        for (let c=0; c<cols; c++){
+          const x0 = cfg.margin + c*cfg.label.w;
+          const y0 = cfg.margin + r*cfg.label.h;
 
-      let y = A4.h - marginMm - labelHmm;
-      for (let r = 0; r < rows; r++) {
-        let x = marginMm;
-        for (let c = 0; c < cols; c++) {
-          // OPTIONAL: cut guides
-          // doc.rect(x, y, labelWmm, labelHmm);
-
-          // Text block
-          let cursorX = x + pad;
-          let cursorY = y + labelHmm - pad;
-
-          doc.text(`SKU: ${sku}`, cursorX, cursorY, { baseline: "top" });
-          cursorY += 3.4;
-          const descShort = desc.length > 90 ? desc.slice(0, 87) + "…" : desc;
-          doc.text(`Description: ${descShort}`, cursorX, cursorY, { baseline: "top", maxWidth: labelWmm - 2 * pad });
-          cursorY += 3.4;
-          doc.text(`Country: ${country}`, cursorX, cursorY, { baseline: "top" });
-
-          // Barcode area
+          // --- barcode at the very top, full width ---
           if (fnsku) {
-            const bW = labelWmm - 2 * pad;   // barcode width to fit label
-            const bH = 10;                   // barcode height area (mm)
-            const bX = x + (labelWmm - bW) / 2;
-            const bY = y + pad + 8;          // push barcode down a little under text
-
-            // Scale the generated canvas into the mm size we defined
-            const dataUrl = barcodeCanvas.toDataURL("image/png");
-            doc.addImage(dataUrl, "PNG", bX, bY, bW, bH);
+            const bw = cfg.label.w - 2*cfg.pad;
+            const bh = cfg.barcodeH;
+            const bx = x0 + (cfg.label.w - bw)/2;
+            const by = y0 + cfg.pad;
+            const dataUrl = bc.toDataURL("image/png");
+            doc.addImage(dataUrl, "PNG", bx, by, bw, bh);
           }
 
-          x += labelWmm;
+          // --- text block below barcode, compact like attachment ---
+          let tx = x0 + cfg.pad;
+          let ty = y0 + cfg.pad + cfg.barcodeH + 0.8; // nudge below human-readable line
+
+          // SKU (bold-ish)
+          doc.setFont(cfg.font, "bold");
+          doc.setFontSize(cfg.skuSize);
+          doc.text(`SKU: ${sku || ""}`, tx, ty, { baseline: "top" });
+
+          // Description (trimmed)
+          ty += cfg.lineGap;
+          doc.setFont(cfg.font, "normal");
+          doc.setFontSize(cfg.descSize);
+          doc.text(`Description: ${oneLine(desc || "", cfg.maxDescChars)}`, tx, ty, {
+            baseline: "top",
+            maxWidth: cfg.label.w - 2*cfg.pad
+          });
+
+          // Country (smallest)
+          ty += cfg.lineGap;
+          doc.setFontSize(cfg.ctySize);
+          doc.text(`Country: ${country || ""}`, tx, ty, { baseline: "top" });
+
+          // OPTIONAL: cut box (uncomment if you want visible guides)
+          // doc.setLineWidth(0.15);
+          // doc.rect(x0, y0, cfg.label.w, cfg.label.h);
         }
-        y -= labelHmm;
       }
 
       doc.save(`${sku || "labels"}.pdf`);
     }
 
-    makePdf();
-  </script>
-</body>
-</html>
-<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>FNSKU Label Generator</title>
-  <!-- jsPDF (for PDF) and JsBarcode (for Code128) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
-  <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; padding: 16px; }
-    .hint { color:#555; font-size: 0.9rem; }
-  </style>
-</head>
-<body>
-  <h3>Generating labels…</h3>
-  <p class="hint">If nothing downloads, check your URL parameters.</p>
-  <canvas id="barcode" width="600" height="220" style="display:none"></canvas>
-
-  <script>
-    // Helpers
-    const mmToPt = mm => (mm / 25.4) * 72;
-    const A4 = { w: 210, h: 297 }; // mm
-
-    function getParam(name, def = "") {
-      const v = new URL(location.href).searchParams.get(name);
-      return (v === null || v === "") ? def : v;
-    }
-
-    function parseSize(mmText, fallbackW = 47.8, fallbackH = 28.2) {
-      const m = (mmText || "").match(/([\d.]+)\s*x\s*([\d.]+)\s*mm/i);
-      if (!m) return { w: fallbackW, h: fallbackH };
-      return { w: parseFloat(m[1]), h: parseFloat(m[2]) };
-    }
-
-    function parseMargin(mmText, fallback = 10) {
-      const m = (mmText || "").match(/([\d.]+)\s*mm/i);
-      return m ? parseFloat(m[1]) : fallback;
-    }
-
-    async function makePdf() {
-      // Read params
-      const sku     = getParam("sku");
-      const desc    = getParam("desc");
-      const country = getParam("country");
-      const fnsku   = getParam("fnsku");
-      const sizeStr = getParam("size", "47.8x28.2mm");
-      const marginStr = getParam("margin", "10mm");
-
-      const { w: labelWmm, h: labelHmm } = parseSize(sizeStr);
-      const marginMm = parseMargin(marginStr);
-
-      // jsPDF in mm units
-      const { jsPDF } = window.jspdf;
-      const doc = new jsPDF({ unit: "mm", format: "a4", compress: true });
-
-      // Grid calc
-      const cols = Math.max(1, Math.floor((A4.w - 2 * marginMm) / labelWmm));
-      const rows = Math.max(1, Math.floor((A4.h - 2 * marginMm) / labelHmm));
-
-      // Prepare barcode to canvas
-      const barcodeCanvas = document.getElementById("barcode");
-      if (fnsku) {
-        JsBarcode(barcodeCanvas, fnsku, {
-          format: "code128",
-          displayValue: true,
-          fontSize: 10,
-          margin: 0
-        });
-      }
-
-      // Draw labels
-      const pad = 2; // mm inner padding
-      const fontSize = 6; // compact text
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(fontSize);
-
-      let y = A4.h - marginMm - labelHmm;
-      for (let r = 0; r < rows; r++) {
-        let x = marginMm;
-        for (let c = 0; c < cols; c++) {
-          // OPTIONAL: cut guides
-          // doc.rect(x, y, labelWmm, labelHmm);
-
-          // Text block
-          let cursorX = x + pad;
-          let cursorY = y + labelHmm - pad;
-
-          doc.text(`SKU: ${sku}`, cursorX, cursorY, { baseline: "top" });
-          cursorY += 3.4;
-          const descShort = desc.length > 90 ? desc.slice(0, 87) + "…" : desc;
-          doc.text(`Description: ${descShort}`, cursorX, cursorY, { baseline: "top", maxWidth: labelWmm - 2 * pad });
-          cursorY += 3.4;
-          doc.text(`Country: ${country}`, cursorX, cursorY, { baseline: "top" });
-
-          // Barcode area
-          if (fnsku) {
-            const bW = labelWmm - 2 * pad;   // barcode width to fit label
-            const bH = 10;                   // barcode height area (mm)
-            const bX = x + (labelWmm - bW) / 2;
-            const bY = y + pad + 8;          // push barcode down a little under text
-
-            // Scale the generated canvas into the mm size we defined
-            const dataUrl = barcodeCanvas.toDataURL("image/png");
-            doc.addImage(dataUrl, "PNG", bX, bY, bW, bH);
-          }
-
-          x += labelWmm;
-        }
-        y -= labelHmm;
-      }
-
-      doc.save(`${sku || "labels"}.pdf`);
-    }
-
-    makePdf();
+    run();
   </script>
 </body>
 </html>
