@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>FNSKU Labels – Match PDF</title>
+  <title>FNSKU Labels</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
 </head>
@@ -14,7 +14,6 @@
       const v = new URL(location.href).searchParams.get(k);
       return (v===null||v==="") ? d : v;
     };
-    const mm = n => n;
     const parseSize = (s, fw=47.8, fh=28.2) => {
       const m = (s||"").match(/([\d.]+)\s*x\s*([\d.]+)\s*mm/i);
       return { w: m ? parseFloat(m[1]) : fw, h: m ? parseFloat(m[2]) : fh };
@@ -29,8 +28,7 @@
 
     async function run(){
       const sku     = get("sku");
-      const line1   = get("line1"); // product title
-      const line2   = get("line2"); // sub-description
+      const desc    = get("desc");
       const country = get("country");
       const fnsku   = get("fnsku");
 
@@ -69,10 +67,28 @@
 
           let ty = y0 + pad + barcodeH + 2;
           doc.setFontSize(6.2);
-          doc.text(line1, x0+pad, ty); ty+=3.2;
-          doc.text(line2, x0+pad, ty); ty+=3.2;
-          doc.text(sku, x0+pad, ty);   ty+=3.2;
-          doc.text(country, x0+pad, ty);
+
+          // split description into 2 lines at comma
+          const descParts = (desc || "").split(",");
+          if (descParts[0]) {
+            doc.text(descParts[0].trim(), x0+pad, ty);
+            ty += 3.2;
+          }
+          if (descParts[1]) {
+            doc.text(descParts[1].trim(), x0+pad, ty);
+            ty += 3.2;
+          }
+
+          // SKU
+          if (sku) {
+            doc.text(sku, x0+pad, ty);
+            ty += 3.2;
+          }
+
+          // Country
+          if (country) {
+            doc.text(country.toUpperCase(), x0+pad, ty);
+          }
 
           // NEW at bottom-left
           doc.setFontSize(6.5);
@@ -86,4 +102,3 @@
   </script>
 </body>
 </html>
-
