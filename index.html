@@ -10,19 +10,23 @@
   <canvas id="barcode" width="1600" height="500" style="display:none"></canvas>
   <script>
     const A4 = { w: 210, h: 297 }; // mm
+
     const get = (k, d="") => {
       const v = new URL(location.href).searchParams.get(k);
       return (v===null||v==="") ? d : v;
     };
 
-    const label = { w: 47.8, h: 28.2 }; // mm fixed size
+    // Fixed label size
+    const label = { w: 47.8, h: 28.2 }; 
     const cols = 4;
     const rows = 10;
-    const marginX = (A4.w - cols * label.w) / 2;
-    const marginY = (A4.h - rows * label.h) / 2;
 
-    const pad = 1.5;     // mm inside each label
-    const barcodeH = 11; // mm
+    // Margins so labels fit evenly
+    const marginX = (A4.w - cols * label.w) / 2; // ~9.4mm
+    const marginY = (A4.h - rows * label.h) / 2; // ~7.5mm
+
+    const pad = 1.5;
+    const barcodeH = 11;
     const font = "helvetica";
 
     async function run(){
@@ -35,8 +39,9 @@
       const doc = new jsPDF({ unit:"mm", format:"a4", compress:true });
       doc.setFont(font,"normal");
 
-      // Generate barcode once
+      // Barcode once
       const bc = document.getElementById("barcode");
+      let barcodeImg = null;
       if (fnsku){
         JsBarcode(bc, fnsku, {
           format: "code128",
@@ -48,8 +53,8 @@
           margin: 0,
           height: Math.round(barcodeH*3.78)
         });
+        barcodeImg = bc.toDataURL("image/png");
       }
-      const barcodeImg = fnsku ? bc.toDataURL("image/png") : null;
 
       for (let r=0;r<rows;r++){
         for (let c=0;c<cols;c++){
@@ -57,7 +62,7 @@
           const y0 = marginY + r*label.h;
           const centerX = x0 + label.w/2;
 
-          // barcode
+          // --- Barcode ---
           if (barcodeImg){
             const bw = label.w - 2*pad;
             doc.addImage(barcodeImg,"PNG",x0+pad,y0+pad,bw,barcodeH);
@@ -66,7 +71,7 @@
           let ty = y0 + pad + barcodeH + 2;
           doc.setFontSize(6.2);
 
-          // description split into 2 lines, centered
+          // --- Description split at comma, centered ---
           const descParts = (descRaw || "").split(",");
           if (descParts[0]) {
             doc.text(descParts[0].trim(), centerX, ty, { align:"center" });
@@ -77,16 +82,16 @@
             ty += 3.2;
           }
 
-          // SKU centered
+          // --- SKU centered ---
           if (sku) {
             doc.text(sku, centerX, ty, { align:"center" });
           }
 
-          // Bottom row: NEW left, COUNTRY right
+          // --- Bottom row ---
           doc.setFontSize(6.5);
           doc.text("NEW", x0+pad, y0+label.h - 2);
           if (country) {
-            doc.text(country.toUpperCase(), x0+label.w-pad, y0+label.h - 2, { align:"right" });
+            doc.text(country.toUpperCase(), x0+label.w - pad, y0+label.h - 2, { align:"right" });
           }
         }
       }
@@ -97,5 +102,6 @@
   </script>
 </body>
 </html>
+
 
 
