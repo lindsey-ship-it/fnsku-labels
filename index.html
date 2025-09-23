@@ -14,25 +14,20 @@
       const v = new URL(location.href).searchParams.get(k);
       return (v===null||v==="") ? d : v;
     };
-    const parseSize = (s, fw=47.8, fh=28.2) => {
-      const m = (s||"").match(/([\d.]+)\s*x\s*([\d.]+)\s*mm/i);
-      return { w: m ? parseFloat(m[1]) : fw, h: m ? parseFloat(m[2]) : fh };
-    };
 
-    // Label dimensions
-    const label = parseSize(get("size","47.8x28.2mm"));
+    const label = { w: 47.8, h: 28.2 }; // mm fixed size
     const cols = 4;
     const rows = 10;
     const marginX = (A4.w - cols * label.w) / 2;
     const marginY = (A4.h - rows * label.h) / 2;
 
-    const pad = 1.5;       // mm padding inside label
-    const barcodeH = 11;   // mm barcode height
+    const pad = 1.5;     // mm inside each label
+    const barcodeH = 11; // mm
     const font = "helvetica";
 
     async function run(){
       const sku     = get("sku");
-      const desc    = decodeURIComponent(get("desc"));
+      const descRaw = decodeURIComponent(get("desc"));
       const country = get("country");
       const fnsku   = get("fnsku");
 
@@ -71,8 +66,8 @@
           let ty = y0 + pad + barcodeH + 2;
           doc.setFontSize(6.2);
 
-          // description split into 2 lines at comma, centered
-          const descParts = (desc || "").split(",");
+          // description split into 2 lines, centered
+          const descParts = (descRaw || "").split(",");
           if (descParts[0]) {
             doc.text(descParts[0].trim(), centerX, ty, { align:"center" });
             ty += 3.2;
@@ -85,15 +80,14 @@
           // SKU centered
           if (sku) {
             doc.text(sku, centerX, ty, { align:"center" });
-            ty += 3.2;
           }
 
-          // Country bottom-right, NEW bottom-left
-          if (country) {
-            doc.text(country.toUpperCase(), x0+label.w-pad, y0+label.h-2, { align:"right" });
-          }
+          // Bottom row: NEW left, COUNTRY right
           doc.setFontSize(6.5);
-          doc.text("NEW", x0+pad, y0+label.h-2);
+          doc.text("NEW", x0+pad, y0+label.h - 2);
+          if (country) {
+            doc.text(country.toUpperCase(), x0+label.w-pad, y0+label.h - 2, { align:"right" });
+          }
         }
       }
 
@@ -103,4 +97,5 @@
   </script>
 </body>
 </html>
+
 
