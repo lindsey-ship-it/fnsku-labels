@@ -6,7 +6,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js" defer></script>
   <style>
-    /* offscreen SVG host for JsBarcode (we'll read its <rect>s and draw in PDF) */
+    /* offscreen SVG host for JsBarcode (we'll read its <rect>.bar and draw in PDF) */
     #bcsvg { position:absolute; left:-9999px; top:-9999px; width:0; height:0; }
   </style>
 </head>
@@ -20,7 +20,6 @@
     const LABEL  = { w: 47.8, h: 28.2 };   // mm
     const COLS = 4, ROWS = 10;
 
-    // gutters: keep total height < 297 mm
     const H_GAP = 2.0;   // mm
     const V_GAP = 1.0;   // mm
     const totalW = COLS * LABEL.w + (COLS - 1) * H_GAP;
@@ -67,14 +66,15 @@
       }
     }
 
-    // Draw JsBarcode's SVG bars as vector rects in jsPDF (no raster, no grey)
+    // Draw JsBarcode's SVG bars (class="bar") as vector rects in jsPDF
     function drawBarcodeVectorFromSVG(doc, svgEl, x, y, w, h){
-      const rects = Array.from(svgEl.querySelectorAll('rect'));
-      if (rects.length === 0) return;
+      // Select only the bar rectangles
+      const bars = Array.from(svgEl.querySelectorAll('rect.bar'));
+      if (bars.length === 0) return;
 
-      // Measure content bounds from rects (JsBarcode often omits width/height on <svg>)
+      // Measure bounds from bars only (ignore any bg rects)
       let maxX = 0, maxY = 0;
-      for (const r of rects) {
+      for (const r of bars) {
         const rx = parseFloat(r.getAttribute('x')) || 0;
         const ry = parseFloat(r.getAttribute('y')) || 0;
         const rw = parseFloat(r.getAttribute('width'))  || 0;
@@ -82,23 +82,17 @@
         maxX = Math.max(maxX, rx + rw);
         maxY = Math.max(maxY, ry + rh);
       }
-      const svgw = maxX || 1;   // avoid 0/NaN
+      const svgw = maxX || 1;
       const svgh = maxY || 1;
       const sx = w / svgw;
       const sy = h / svgh;
 
       doc.setFillColor(0,0,0);
-      for (const r of rects) {
-        // Skip any white background rects if present
-        const fill = (r.getAttribute('fill') || '#000').toLowerCase();
-        if (fill.includes('fff') || fill.includes('white')) continue;
-
+      for (const r of bars) {
         const rx = parseFloat(r.getAttribute('x')) || 0;
         const ry = parseFloat(r.getAttribute('y')) || 0;
         const rw = parseFloat(r.getAttribute('width'))  || 0;
         const rh = parseFloat(r.getAttribute('height')) || 0;
-
-        // Draw black bar
         doc.rect(x + rx * sx, y + ry * sy, rw * sx, rh * sy, 'F');
       }
     }
@@ -121,7 +115,7 @@
           format: 'code128',
           displayValue: false,
           margin: 0,
-          width: 1.25,  // ~0.33 mm X-dimension (very scannable)
+          width: 1.25,  // ~0.33 mm X-dimension
           height: Math.round(BARCODE_H * 3.78)
         });
       }
@@ -203,3 +197,4 @@
   </script>
 </body>
 </html>
+
