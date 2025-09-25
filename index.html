@@ -2,53 +2,58 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>FNSKU Labels – 40 per A4</title>
+  <title>FNSKU Labels – 40 per A4 with Gutters</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
 </head>
 <body>
-  <!-- Bars-only canvas (sharp); FNSKU text is drawn by jsPDF -->
+  <!-- Bars-only canvas; FNSKU text is drawn by jsPDF for sharpness -->
   <canvas id="barcode" width="2400" height="600" style="display:none"></canvas>
 
   <script>
-    // ---------- Page & grid ----------
-    const A4 = { w: 210, h: 297 };          // mm
-    const LABEL = { w: 47.8, h: 28.2 };     // mm
+    // -------- Page & base label size --------
+    const A4 = { w: 210, h: 297 };        // mm
+    const LABEL = { w: 47.8, h: 28.2 };   // mm (Amazon 40-up)
     const COLS = 4, ROWS = 10;
-    const MARGIN_X = (A4.w - COLS * LABEL.w) / 2;
-    const MARGIN_Y = (A4.h - ROWS * LABEL.h) / 2;
 
-    // ---------- Helpers ----------
-    const qp = new URL(location.href).searchParams;
-    const getP = (k, d) => (qp.get(k) ?? d);
-    const num = (k, d) => {
-      const v = getP(k, d);
-      const n = (v === "" || v === null) ? d : Number(v);
-      return Number.isFinite(n) ? n : d;
-    };
+    // -------- Gutters (spacing between labels) --------
+    const H_GAP = 2.0;   // mm horizontal gap between columns
+    const V_GAP = 2.0;   // mm vertical gap between rows
 
-    // ---------- In-label layout (defaults) ----------
-    const PAD = 1.5;                // inner padding (mm)
-    const BARCODE_H = 11;           // barcode bars height (mm)
+    // Compute centered margins that include gutters
+    const totalW = COLS * LABEL.w + (COLS - 1) * H_GAP;
+    const totalH = ROWS * LABEL.h + (ROWS - 1) * V_GAP;
+    const MARGIN_X = (A4.w - totalW) / 2;
+    const MARGIN_Y = (A4.h - totalH) / 2;
 
-    // FNSKU text spacing (overridable by query)
-    const FNSKU_FONT = num('fb', 6);     // pt
-    const GAP_AFTER_BARS = num('gab', 1.6);  // mm (bars -> FNSKU)
-    const GAP_AFTER_FNSKU = num('gaf', 3.2); // mm (FNSKU -> description)
+    // -------- In-label layout --------
+    const PAD = 1.5;            // mm inner padding
+    const BARCODE_H = 11;       // mm bars height
 
-    // Body text
-    const BODY_FONT = 6.0;           // pt
-    const LINE_GAP = num('lg', 2.6); // mm between lines
+    // FNSKU text (crisp vector text)
+    const FNSKU_FONT = 7;       // pt
+    const GAP_AFTER_BARS = 1.6; // mm bars -> FNSKU
+    const GAP_AFTER_FNSKU = 3.2;// mm FNSKU -> text stack
+
+    // Text stack (SKU bold, then description lines)
+    const BODY_FONT = 6.0;      // pt
+    const SKU_FONT = 6.2;       // pt (bold)
+    const LINE_GAP = 2.6;       // mm between lines
 
     // Footer
-    const FOOTER_FONT = 6.5;         // pt
-    const FOOTER_OFFSET = 2.0;       // mm from bottom
-    const CLEAR_ABOVE_FOOTER = 3.5;  // mm whitespace to keep
-    const UP_SHIFT = num('up', 0.8); // mm lift for the whole stack
+    const FOOTER_FONT = 6.5;    // pt
+    const FOOTER_OFFSET = 2.0;  // mm up from label bottom
+    const CLEAR_ABOVE_FOOTER = 3.5; // mm whitespace reserved above footer
+    const UP_SHIFT = 0.8;       // mm lift for the text stack
+
+    // -------- Helpers --------
+    const qp = new URL(location.href).searchParams;
+    const getP = (k, d="") => (qp.get(k) ?? d);
+    const decode = s => decodeURIComponent(s || "");
 
     async function run(){
       const sku     = getP("sku", "");
-      const desc    = decodeURIComponent(getP("desc", ""));
+      const desc    = decode(getP("desc", ""));
       const country = getP("country", "");
       const fnsku   = getP("fnsku", "");
 
@@ -56,7 +61,7 @@
       const doc = new jsPDF({ unit: "mm", format: "a4", compress: true });
       doc.setFont("helvetica", "normal");
 
-      // Make barcode bars (no text in the image)
+      // --- Make barcode: bars only (no text inside image) ---
       const bc = document.getElementById("barcode");
       let barcodeImg = null;
       if (fnsku) {
@@ -65,15 +70,16 @@
           displayValue: false,
           margin: 0,
           width: 1.2,
-          height: Math.round(BARCODE_H * 3.78) // px ≈ mm * 3.78
+          height: Math.round(BARCODE_H * 3.78) // px ≈ mm*3.78
         });
         barcodeImg = bc.toDataURL("image/png");
       }
 
+      // --- Draw the grid with gutters ---
       for (let r = 0; r < ROWS; r++) {
         for (let c = 0; c < COLS; c++) {
-          const x0 = MARGIN_X + c * LABEL.w;
-          const y0 = MARGIN_Y + r * LABEL.h;
+          const x0 = MARGIN_X + c * (LABEL.w + H_GAP);
+          const y0 = MARGIN_Y + r * (LABEL.h + V_GAP);
           const cx = x0 + LABEL.w / 2;
 
           // 1) Bars
@@ -82,42 +88,60 @@
             doc.addImage(barcodeImg, "PNG", x0 + PAD, y0 + PAD, bw, BARCODE_H);
           }
 
-          // 2) Footer line (NEW left, COUNTRY right)
+          // 2) Footer (NEW left, COUNTRY right)
           const footerY = y0 + LABEL.h - FOOTER_OFFSET;
           doc.setFontSize(FOOTER_FONT);
+          doc.setFont("helvetica", "normal");
           doc.text("NEW", x0 + PAD, footerY);
-          if (country) doc.text(country.toUpperCase(), x0 + LABEL.w - PAD, footerY, { align: "right" });
+          if (country) {
+            doc.text(country.toUpperCase(), x0 + LABEL.w - PAD, footerY, { align: "right" });
+          }
 
-          // 3) FNSKU (vector text; crisp)
+          // 3) FNSKU text (centered, crisp)
           if (fnsku) {
             doc.setFontSize(FNSKU_FONT);
+            doc.setFont("helvetica", "normal");
             const fnskuY = y0 + PAD + BARCODE_H + GAP_AFTER_BARS;
             doc.text(fnsku, cx, fnskuY, { align: "center", baseline: "top" });
           }
 
-          // 4) Description (2 lines max) + SKU, all centred
-          doc.setFontSize(BODY_FONT);
+          // 4) Text stack: SKU (bold) then description lines, all centered
           const parts = (desc || "").split(",");
-          const lines = [];
-          if (parts[0]) lines.push(parts[0].trim());
-          if (parts[1]) lines.push(parts[1].trim());
-          if (sku)      lines.push(sku);
+          const desc1 = parts[0] ? parts[0].trim() : "";
+          const desc2 = parts[1] ? parts[1].trim() : "";
 
-          // Nominal start (with small upward bias)
+          // Nominal start Y (after FNSKU gap) with slight upward bias
           let startY = y0 + PAD + BARCODE_H + GAP_AFTER_BARS + GAP_AFTER_FNSKU - UP_SHIFT;
 
-          // Height needed for remaining lines
-          const needed = (lines.length > 1) ? ((lines.length - 1) * LINE_GAP) : 0;
+          // Count how many lines we’ll draw in the stack
+          const stackLines = [sku, desc1, desc2].filter(Boolean);
+          const needed = (stackLines.length > 1) ? ((stackLines.length - 1) * LINE_GAP) : 0;
 
-          // Keep clear of footer
+          // Keep stack safely above footer
           const maxTopY = footerY - CLEAR_ABOVE_FOOTER - needed;
-          if (startY > maxTopY) startY = Math.max(y0 + PAD + BARCODE_H + 0.8, maxTopY);
+          if (startY > maxTopY) {
+            startY = Math.max(y0 + PAD + BARCODE_H + 0.8, maxTopY);
+          }
 
-          // Draw the lines
+          // Draw SKU (bold)
           let ty = startY;
-          for (const text of lines) {
-            doc.text(text, cx, ty, { align: "center", baseline: "top" });
+          if (sku) {
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(SKU_FONT);
+            doc.text(sku, cx, ty, { align: "center", baseline: "top" });
             ty += LINE_GAP;
+          }
+
+          // Draw description lines (normal)
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(BODY_FONT);
+          if (desc1) {
+            doc.text(desc1, cx, ty, { align: "center", baseline: "top" });
+            ty += LINE_GAP;
+          }
+          if (desc2) {
+            doc.text(desc2, cx, ty, { align: "center", baseline: "top" });
+            // ty += LINE_GAP; // not needed further
           }
 
           // // Debug cut box:
