@@ -172,7 +172,21 @@
         }
       }
 
-      doc.save(`${(sku || "labels")}.pdf`);
+    try {
+  // Primary path — forces a "Save As" download in most browsers
+  const blob = doc.output("blob");
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${sku || "labels"}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  URL.revokeObjectURL(url);
+  a.remove();
+} catch (e) {
+  // Fallback
+  doc.save(`${sku || "labels"}.pdf`);
+}
     }
 
     run();
