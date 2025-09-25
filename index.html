@@ -6,7 +6,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js" defer></script>
   <style>
-    /* offscreen SVG host for JsBarcode (we'll read its <rect>.bar and draw in PDF) */
+    /* offscreen SVG host for JsBarcode */
     #bcsvg { position:absolute; left:-9999px; top:-9999px; width:0; height:0; }
   </style>
 </head>
@@ -16,8 +16,8 @@
   <script>
   window.addEventListener('load', () => {
     // ---------- Page & grid ----------
-    const A4     = { w: 210, h: 297 };     // mm
-    const LABEL  = { w: 47.8, h: 28.2 };   // mm
+    const A4 = { w: 210, h: 297 };
+    const LABEL = { w: 47.8, h: 28.2 };
     const COLS = 4, ROWS = 10;
 
     const H_GAP = 2.0;   // mm
@@ -28,8 +28,8 @@
     const MARGIN_Y = (A4.h - totalH) / 2;
 
     // ---------- In-label layout ----------
-    const PAD = 2.8;            // mm quiet zones left/right
-    const BARCODE_H = 12.5;     // mm bar height
+    const PAD = 2.8;            // mm (quiet zones too)
+    const BARCODE_H = 12.5;     // mm bar height (scannable)
 
     const FNSKU_FONT = 7;       // pt
     const GAP_AFTER_BARS  = 0.8;  // mm bars → FNSKU
@@ -66,15 +66,14 @@
       }
     }
 
-    // Draw JsBarcode's SVG bars (class="bar") as vector rects in jsPDF
+    // Draw JsBarcode's SVG bars as vector rects in jsPDF (skip white fills)
     function drawBarcodeVectorFromSVG(doc, svgEl, x, y, w, h){
-      // Select only the bar rectangles
-      const bars = Array.from(svgEl.querySelectorAll('rect.bar'));
-      if (bars.length === 0) return;
+      const rects = Array.from(svgEl.querySelectorAll('rect'));
+      if (rects.length === 0) return;
 
-      // Measure bounds from bars only (ignore any bg rects)
+      // Measure bounds from all rects (JsBarcode may omit width/height on <svg>)
       let maxX = 0, maxY = 0;
-      for (const r of bars) {
+      for (const r of rects) {
         const rx = parseFloat(r.getAttribute('x')) || 0;
         const ry = parseFloat(r.getAttribute('y')) || 0;
         const rw = parseFloat(r.getAttribute('width'))  || 0;
@@ -88,11 +87,17 @@
       const sy = h / svgh;
 
       doc.setFillColor(0,0,0);
-      for (const r of bars) {
+      for (const r of rects) {
+        // Skip explicit white rectangles (backgrounds)
+        const fill = (r.getAttribute('fill') || r.style.fill || '#000').toLowerCase();
+        if (fill.includes('white') || fill.includes('#fff')) continue;
+
         const rx = parseFloat(r.getAttribute('x')) || 0;
         const ry = parseFloat(r.getAttribute('y')) || 0;
         const rw = parseFloat(r.getAttribute('width'))  || 0;
         const rh = parseFloat(r.getAttribute('height')) || 0;
+        if (rw <= 0 || rh <= 0) continue;
+
         doc.rect(x + rx * sx, y + ry * sy, rw * sx, rh * sy, 'F');
       }
     }
@@ -107,7 +112,7 @@
       const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
       doc.setFont('helvetica', 'normal');
 
-      // Build barcode SVG (bars only)
+      // Build barcode SVG (bars only, transparent bg, black bars)
       const bcSVG = document.getElementById('bcsvg');
       bcSVG.innerHTML = '';
       if (fnsku){
@@ -115,8 +120,10 @@
           format: 'code128',
           displayValue: false,
           margin: 0,
-          width: 1.25,  // ~0.33 mm X-dimension
-          height: Math.round(BARCODE_H * 3.78)
+          width: 1.25,              // ~0.33 mm X-dimension
+          height: Math.round(BARCODE_H * 3.78),
+          background: 'transparent',// NO white background rect
+          lineColor: '#000'         // black bars
         });
       }
 
