@@ -7,33 +7,37 @@
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
 </head>
 <body>
-  <!-- Bars-only canvas so FNSKU text can be drawn crisply by jsPDF -->
+  <!-- Canvas renders barcode BARS ONLY (no text) so FNSKU is drawn crisply by jsPDF -->
   <canvas id="barcode" width="2400" height="600" style="display:none"></canvas>
 
   <script>
     // ---- Page & grid ----
     const A4 = { w: 210, h: 297 };          // mm
-    const LABEL = { w: 47.8, h: 28.2 };     // mm
+    const LABEL = { w: 47.8, h: 28.2 };     // mm (Amazon 40-up)
     const COLS = 4, ROWS = 10;
-    const MARGIN_X = (A4.w - COLS * LABEL.w) / 2;
-    const MARGIN_Y = (A4.h - ROWS * LABEL.h) / 2;
+
+    // Center grid on page
+    const MARGIN_X = (A4.w - COLS * LABEL.w) / 2; // ≈ 9.4 mm
+    const MARGIN_Y = (A4.h - ROWS * LABEL.h) / 2; // ≈ 7.5 mm
 
     // ---- In-label layout ----
-    const PAD = 1.5;             // mm inner padding
-    const BARCODE_H = 11;        // mm bars height
+    const PAD = 1.5;              // mm inner padding
+    const BARCODE_H = 11;         // mm bars height
 
-    // FNSKU text (smaller & higher)
-    const FNSKU_FONT = 7;        // pt
-    const GAP_AFTER_BARS = 2.4;  // mm gap between bars & FNSKU text
-    const GAP_AFTER_FNSKU = 3.0; // mm gap between FNSKU text & description
+    // FNSKU text tuning (smaller, higher, crisp)
+    const FNSKU_FONT = 7;         // pt
+    const GAP_AFTER_BARS = 2.4;   // mm gap between bars & FNSKU text
+    const GAP_AFTER_FNSKU = 2.6;  // mm gap between FNSKU text & description
 
     // Body text (description + SKU)
-    const BODY_FONT = 6.0;       // pt
-    const LINE_GAP = 2.8;        // mm between lines
+    const BODY_FONT = 6.0;        // pt
+    const LINE_GAP = 2.6;         // mm between lines
 
     // Footer (NEW / COUNTRY)
-    const FOOTER_FONT = 6.5;     // pt
-    const FOOTER_OFFSET = 2.0;   // mm up from bottom edge
+    const FOOTER_FONT = 6.5;      // pt
+    const FOOTER_OFFSET = 2.0;    // mm up from bottom edge
+    const CLEAR_ABOVE_FOOTER = 3.5; // mm whitespace above footer baseline
+    const UP_SHIFT = 0.8;         // mm lift for the whole text stack
 
     // Helpers
     const getParam = (k, d="") => {
@@ -51,25 +55,26 @@
       const doc = new jsPDF({ unit: "mm", format: "a4", compress: true });
       doc.setFont("helvetica", "normal");
 
-      // Make barcode bars (no text in the image)
+      // ---- Barcode bars only (no text in the image) ----
       const bc = document.getElementById("barcode");
       let barcodeImg = null;
       if (fnsku) {
         JsBarcode(bc, fnsku, {
           format: "code128",
-          displayValue: false,
+          displayValue: false,       // bars only
           margin: 0,
-          width: 1.2,
-          height: Math.round(BARCODE_H * 3.78)
+          width: 1.2,                // thin bars
+          height: Math.round(BARCODE_H * 3.78) // px ≈ mm*3.78
         });
         barcodeImg = bc.toDataURL("image/png");
       }
 
+      // ---- Draw labels (4 x 10) ----
       for (let r = 0; r < ROWS; r++) {
         for (let c = 0; c < COLS; c++) {
           const x0 = MARGIN_X + c * LABEL.w;
           const y0 = MARGIN_Y + r * LABEL.h;
-          const cx = x0 + LABEL.w / 2;
+          const cx = x0 + LABEL.w / 2; // label center X
 
           // 1) Barcode bars
           if (barcodeImg) {
@@ -77,7 +82,7 @@
             doc.addImage(barcodeImg, "PNG", x0 + PAD, y0 + PAD, bw, BARCODE_H);
           }
 
-          // 2) Footer first (so we know the limit)
+          // 2) Footer first (to know the limit line)
           const footerY = y0 + LABEL.h - FOOTER_OFFSET;
           doc.setFontSize(FOOTER_FONT);
           doc.text("NEW", x0 + PAD, footerY);
@@ -85,14 +90,14 @@
             doc.text(country.toUpperCase(), x0 + LABEL.w - PAD, footerY, { align: "right" });
           }
 
-          // 3) FNSKU text (smaller & higher)
+          // 3) FNSKU text (vector, crisp, with controlled spacing)
           if (fnsku) {
             doc.setFontSize(FNSKU_FONT);
             const fnskuY = y0 + PAD + BARCODE_H + GAP_AFTER_BARS;
             doc.text(fnsku, cx, fnskuY, { align: "center", baseline: "top" });
           }
 
-          // 4) Description (2 lines max) and SKU — centred
+          // 4) Description (split on first comma) and SKU — centered
           doc.setFontSize(BODY_FONT);
           const parts = (desc || "").split(",");
           const lines = [];
@@ -100,15 +105,21 @@
           if (parts[1]) lines.push(parts[1].trim());
           if (sku)      lines.push(sku);
 
-          // Start position (nominal)
-          let startY = y0 + PAD + BARCODE_H + GAP_AFTER_BARS + GAP_AFTER_FNSKU;
-          // Compute total height needed for lines
-          const needed = (lines.length > 0) ? ( (lines.length - 1) * LINE_GAP ) : 0;
-          // Keep at least 2.5 mm of whitespace above the footer line
-          const maxTopY = footerY - 2.5 - needed;
-          // Clamp upward if we would run into the footer
-          if (startY > maxTopY) startY = Math.max(y0 + PAD + BARCODE_H + 1.0, maxTopY);
+          // Nominal start for the stack (with small upward bias)
+          let startY = y0 + PAD + BARCODE_H + GAP_AFTER_BARS + GAP_AFTER_FNSKU - UP_SHIFT;
 
+          // Height needed for the remaining lines
+          const needed = (lines.length > 1) ? ((lines.length - 1) * LINE_GAP) : 0;
+
+          // Max top Y so we keep clear of the footer
+          const maxTopY = footerY - CLEAR_ABOVE_FOOTER - needed;
+
+          // Clamp upward if we'd crowd the footer
+          if (startY > maxTopY) {
+            startY = Math.max(y0 + PAD + BARCODE_H + 0.8, maxTopY);
+          }
+
+          // Draw lines centered
           let ty = startY;
           for (const text of lines) {
             doc.text(text, cx, ty, { align: "center", baseline: "top" });
