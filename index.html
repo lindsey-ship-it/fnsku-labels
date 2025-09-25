@@ -7,96 +7,113 @@
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
 </head>
 <body>
-  <canvas id="barcode" width="1600" height="500" style="display:none"></canvas>
+  <!-- Big canvas so bars rasterize sharply; we will draw ONLY the bars (no text in the image) -->
+  <canvas id="barcode" width="2400" height="600" style="display:none"></canvas>
+
   <script>
-    const A4 = { w: 210, h: 297 }; // mm
-    const label = { w: 47.8, h: 28.2 }; // fixed Amazon 40-up size
-    const cols = 4;
-    const rows = 10;
+    // --- constants ---
+    const A4 = { w: 210, h: 297 };            // mm
+    const LABEL = { w: 47.8, h: 28.2 };       // mm (Amazon 40-up)
+    const COLS = 4;
+    const ROWS = 10;
 
-    // margins so labels are centered on the page
-    const marginX = (A4.w - cols * label.w) / 2; // ~9.4 mm
-    const marginY = (A4.h - rows * label.h) / 2; // ~7.5 mm
+    // centred margins so 4x10 fits perfectly on A4
+    const MARGIN_X = (A4.w - COLS * LABEL.w) / 2; // ~9.4 mm
+    const MARGIN_Y = (A4.h - ROWS * LABEL.h) / 2; // ~7.5 mm
 
-    const pad = 1.5;       // inner padding
-    const barcodeH = 11;   // mm
-    const font = "helvetica";
+    // layout inside a label
+    const PAD = 1.5;            // mm inner padding
+    const BARCODE_H = 11;       // mm bar height (bars only)
+    const FNSKU_FONT = 9;       // pt jsPDF font size for FNSKU text (crisp)
+    const FNSKU_GAP = 1.6;      // mm gap between bars and FNSKU text
+    const AFTER_FNSKU_GAP = 2;  // mm gap from FNSKU to description lines
+    const LINE_GAP = 3.2;       // mm between description lines & SKU
+    const BODY_FONT = 6.2;      // pt for description & SKU
+    const FOOTER_FONT = 6.5;    // pt for NEW/COUNTRY
 
-    const get = (k, d="") => {
+    // helpers
+    const getParam = (k, d="") => {
       const v = new URL(location.href).searchParams.get(k);
-      return (v===null||v==="") ? d : v;
+      return (v === null || v === "") ? d : v;
     };
 
     async function run(){
-      const sku     = get("sku");
-      const descRaw = decodeURIComponent(get("desc"));
-      const country = get("country");
-      const fnsku   = get("fnsku");
+      const sku     = getParam("sku");
+      const desc    = decodeURIComponent(getParam("desc"));
+      const country = getParam("country");
+      const fnsku   = getParam("fnsku");
 
       const { jsPDF } = window.jspdf;
-      const doc = new jsPDF({ unit:"mm", format:"a4", compress:true });
-      doc.setFont(font,"normal");
+      const doc = new jsPDF({ unit: "mm", format: "a4", compress: true });
+      doc.setFont("helvetica", "normal");
 
-      // generate barcode once
+      // Draw barcode BARS only (no text in image -> crisper & we control spacing)
       const bc = document.getElementById("barcode");
       let barcodeImg = null;
-      if (fnsku){
+      if (fnsku) {
         JsBarcode(bc, fnsku, {
           format: "code128",
-          displayValue: true,
-          textPosition: "bottom",
-          textAlign: "center",
-          font: "Helvetica",
-          fontSize: 9,
+          displayValue: false, // IMPORTANT: bars only, no text
           margin: 0,
-          height: Math.round(barcodeH*3.78) // px = mm*3.78
+          width: 1.2,          // thin bars; visual tuning
+          height: Math.round(BARCODE_H * 3.78) // px ≈ mm*3.78
         });
         barcodeImg = bc.toDataURL("image/png");
       }
 
-      // draw grid
-      for (let r=0;r<rows;r++){
-        for (let c=0;c<cols;c++){
-          const x0 = marginX + c*label.w;
-          const y0 = marginY + r*label.h;
-          const centerX = x0 + label.w/2;
+      // grid loop (4 x 10)
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const x0 = MARGIN_X + c * LABEL.w;
+          const y0 = MARGIN_Y + r * LABEL.h;
+          const cx = x0 + LABEL.w / 2; // horizontal centre
 
-          // barcode
-          if (barcodeImg){
-            const bw = label.w - 2*pad;
-            doc.addImage(barcodeImg,"PNG",x0+pad,y0+pad,bw,barcodeH);
+          // 1) BARCODE bars
+          if (barcodeImg) {
+            const bw = LABEL.w - 2 * PAD; // full width minus padding
+            doc.addImage(barcodeImg, "PNG", x0 + PAD, y0 + PAD, bw, BARCODE_H);
           }
 
-          let ty = y0 + pad + barcodeH + 2;
-          doc.setFontSize(6.2);
-
-          // description split at comma, centered
-          const descParts = (descRaw || "").split(",");
-          if (descParts[0]) {
-            doc.text(descParts[0].trim(), centerX, ty, { align:"center" });
-            ty += 3.2;
-          }
-          if (descParts[1]) {
-            doc.text(descParts[1].trim(), centerX, ty, { align:"center" });
-            ty += 3.2;
+          // 2) FNSKU text (crisp, with extra gap under bars)
+          if (fnsku) {
+            doc.setFontSize(FNSKU_FONT);
+            const fnskuY = y0 + PAD + BARCODE_H + FNSKU_GAP;
+            doc.text(fnsku, cx, fnskuY, { align: "center", baseline: "top" });
           }
 
-          // SKU centered
+          // 3) Description (two lines, centred), then SKU (centred)
+          let ty = y0 + PAD + BARCODE_H + FNSKU_GAP + AFTER_FNSKU_GAP;
+          doc.setFontSize(BODY_FONT);
+
+          const parts = (desc || "").split(",");
+          if (parts[0]) {
+            doc.text(parts[0].trim(), cx, ty, { align: "center", baseline: "top" });
+            ty += LINE_GAP;
+          }
+          if (parts[1]) {
+            doc.text(parts[1].trim(), cx, ty, { align: "center", baseline: "top" });
+            ty += LINE_GAP;
+          }
+
           if (sku) {
-            doc.text(sku, centerX, ty, { align:"center" });
+            doc.text(sku, cx, ty, { align: "center", baseline: "top" });
           }
 
-          // NEW bottom-left, Country bottom-right
-          doc.setFontSize(6.5);
-          doc.text("NEW", x0+pad, y0+label.h - 2);
+          // 4) Footer: NEW (bottom-left) and COUNTRY (bottom-right)
+          doc.setFontSize(FOOTER_FONT);
+          doc.text("NEW", x0 + PAD, y0 + LABEL.h - 2);
           if (country) {
-            doc.text(country.toUpperCase(), x0+label.w - pad, y0+label.h - 2, { align:"right" });
+            doc.text(country.toUpperCase(), x0 + LABEL.w - PAD, y0 + LABEL.h - 2, { align: "right" });
           }
+
+          // Uncomment to see cut boxes for debugging:
+          // doc.setLineWidth(0.15); doc.rect(x0, y0, LABEL.w, LABEL.h);
         }
       }
 
-      doc.save(`${sku||"labels"}.pdf`);
+      doc.save(`${sku || "labels"}.pdf`);
     }
+
     run();
   </script>
 </body>
