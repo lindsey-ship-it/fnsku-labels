@@ -69,27 +69,38 @@
 
     // Draw JsBarcode's SVG bars as vector rects in jsPDF (no raster, no grey)
     function drawBarcodeVectorFromSVG(doc, svgEl, x, y, w, h){
-      // JsBarcode sets width/height attributes in px
-      const svgw = parseFloat(svgEl.getAttribute('width'))  || 1;
-      const svgh = parseFloat(svgEl.getAttribute('height')) || 1;
+      const rects = Array.from(svgEl.querySelectorAll('rect'));
+      if (rects.length === 0) return;
+
+      // Measure content bounds from rects (JsBarcode often omits width/height on <svg>)
+      let maxX = 0, maxY = 0;
+      for (const r of rects) {
+        const rx = parseFloat(r.getAttribute('x')) || 0;
+        const ry = parseFloat(r.getAttribute('y')) || 0;
+        const rw = parseFloat(r.getAttribute('width'))  || 0;
+        const rh = parseFloat(r.getAttribute('height')) || 0;
+        maxX = Math.max(maxX, rx + rw);
+        maxY = Math.max(maxY, ry + rh);
+      }
+      const svgw = maxX || 1;   // avoid 0/NaN
+      const svgh = maxY || 1;
       const sx = w / svgw;
       const sy = h / svgh;
 
-      const rects = svgEl.querySelectorAll('rect');
       doc.setFillColor(0,0,0);
-
-      rects.forEach(r => {
-        // Only draw black bars (skip any white/background rects if present)
-        const fill = (r.getAttribute('fill') || 'black').toLowerCase();
-        if (fill.includes('white')) return;
+      for (const r of rects) {
+        // Skip any white background rects if present
+        const fill = (r.getAttribute('fill') || '#000').toLowerCase();
+        if (fill.includes('fff') || fill.includes('white')) continue;
 
         const rx = parseFloat(r.getAttribute('x')) || 0;
         const ry = parseFloat(r.getAttribute('y')) || 0;
         const rw = parseFloat(r.getAttribute('width'))  || 0;
         const rh = parseFloat(r.getAttribute('height')) || 0;
 
+        // Draw black bar
         doc.rect(x + rx * sx, y + ry * sy, rw * sx, rh * sy, 'F');
-      });
+      }
     }
 
     function run(){
@@ -180,9 +191,6 @@
           if (desc2) {
             doc.text(desc2, cx, ty, { align: 'center', baseline: 'top' });
           }
-
-          // // Debug:
-          // doc.setLineWidth(0.15); doc.rect(x0, y0, LABEL.w, LABEL.h);
         }
       }
 
