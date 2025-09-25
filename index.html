@@ -7,30 +7,40 @@
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
 </head>
 <body>
-  <!-- barcode canvas (bars only, no text) -->
+  <!-- Canvas renders barcode BARS ONLY (no text), so we can place crisp FNSKU text ourselves -->
   <canvas id="barcode" width="2400" height="600" style="display:none"></canvas>
 
   <script>
-    const A4 = { w: 210, h: 297 }; 
-    const LABEL = { w: 47.8, h: 28.2 }; 
+    // ---------- Page & grid ----------
+    const A4 = { w: 210, h: 297 };             // mm
+    const LABEL = { w: 47.8, h: 28.2 };        // mm (Amazon 40-up)
     const COLS = 4;
     const ROWS = 10;
 
-    const MARGIN_X = (A4.w - COLS * LABEL.w) / 2;
-    const MARGIN_Y = (A4.h - ROWS * LABEL.h) / 2;
+    // Centre the grid on the page
+    const MARGIN_X = (A4.w - COLS * LABEL.w) / 2; // ≈ 9.4 mm
+    const MARGIN_Y = (A4.h - ROWS * LABEL.h) / 2; // ≈ 7.5 mm
 
-    const PAD = 1.5;      
-    const BARCODE_H = 11; 
-    const FONT = "helvetica";
+    // ---------- In-label layout ----------
+    const PAD = 1.5;             // mm inner padding
+    const BARCODE_H = 11;        // mm barcode bars height
 
-    // spacing
-    const GAP_AFTER_BARS = 2.5;  // gap before FNSKU text
-    const GAP_AFTER_FNSKU = 3;   // gap before description
-    const LINE_GAP = 3.2;        // between desc lines & SKU
+    // FNSKU text tuning (crisp and well-spaced)
+    const FNSKU_FONT = 8;        // pt (reduced so it doesn't overlap)
+    const GAP_AFTER_BARS = 3;    // mm gap between bars and FNSKU text
+    const GAP_AFTER_FNSKU = 4;   // mm gap between FNSKU and description
 
+    // Body text
+    const BODY_FONT = 6.2;       // pt for description & SKU
+    const LINE_GAP = 3.2;        // mm between lines
+
+    // Footer text
+    const FOOTER_FONT = 6.5;     // pt for NEW / COUNTRY
+
+    // ---------- Helpers ----------
     const getParam = (k, d="") => {
       const v = new URL(location.href).searchParams.get(k);
-      return (v===null||v==="") ? d : v;
+      return (v === null || v === "") ? d : v;
     };
 
     async function run(){
@@ -40,70 +50,75 @@
       const fnsku   = getParam("fnsku");
 
       const { jsPDF } = window.jspdf;
-      const doc = new jsPDF({ unit:"mm", format:"a4", compress:true });
-      doc.setFont(FONT,"normal");
+      const doc = new jsPDF({ unit: "mm", format: "a4", compress: true });
+      doc.setFont("helvetica", "normal");
 
-      // barcode bars only
+      // Generate barcode BARS ONLY (no text in the image)
       const bc = document.getElementById("barcode");
       let barcodeImg = null;
-      if (fnsku){
+      if (fnsku) {
         JsBarcode(bc, fnsku, {
           format: "code128",
-          displayValue: false, // no text here
+          displayValue: false,      // no text here
           margin: 0,
-          width: 1.2,
-          height: Math.round(BARCODE_H * 3.78)
+          width: 1.2,               // thin bars
+          height: Math.round(BARCODE_H * 3.78) // px ≈ mm*3.78
         });
         barcodeImg = bc.toDataURL("image/png");
       }
 
-      for (let r=0;r<ROWS;r++){
-        for (let c=0;c<COLS;c++){
-          const x0 = MARGIN_X + c*LABEL.w;
-          const y0 = MARGIN_Y + r*LABEL.h;
-          const cx = x0 + LABEL.w/2;
+      // Draw 4 × 10 labels
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const x0 = MARGIN_X + c * LABEL.w;
+          const y0 = MARGIN_Y + r * LABEL.h;
+          const cx = x0 + LABEL.w / 2; // centre X within label
 
-          // --- barcode bars ---
-          if (barcodeImg){
-            const bw = LABEL.w - 2*PAD;
-            doc.addImage(barcodeImg,"PNG",x0+PAD,y0+PAD,bw,BARCODE_H);
+          // 1) Barcode bars
+          if (barcodeImg) {
+            const bw = LABEL.w - 2 * PAD;
+            doc.addImage(barcodeImg, "PNG", x0 + PAD, y0 + PAD, bw, BARCODE_H);
           }
 
-          // --- FNSKU text (vector, sharp, with extra gap) ---
-          if (fnsku){
-            doc.setFontSize(10); // bigger, sharper
+          // 2) FNSKU text (crisp vector text with controlled spacing)
+          if (fnsku) {
+            doc.setFontSize(FNSKU_FONT);
             const fnskuY = y0 + PAD + BARCODE_H + GAP_AFTER_BARS;
-            doc.text(fnsku, cx, fnskuY, { align:"center", baseline:"top" });
+            doc.text(fnsku, cx, fnskuY, { align: "center", baseline: "top" });
           }
 
-          // --- description + SKU ---
+          // 3) Description (split at first comma), then SKU — all centred
           let ty = y0 + PAD + BARCODE_H + GAP_AFTER_BARS + GAP_AFTER_FNSKU;
-          doc.setFontSize(6.2);
+          doc.setFontSize(BODY_FONT);
 
           const parts = (desc || "").split(",");
           if (parts[0]) {
-            doc.text(parts[0].trim(), cx, ty, { align:"center" });
+            doc.text(parts[0].trim(), cx, ty, { align: "center", baseline: "top" });
             ty += LINE_GAP;
           }
           if (parts[1]) {
-            doc.text(parts[1].trim(), cx, ty, { align:"center" });
+            doc.text(parts[1].trim(), cx, ty, { align: "center", baseline: "top" });
             ty += LINE_GAP;
           }
           if (sku) {
-            doc.text(sku, cx, ty, { align:"center" });
+            doc.text(sku, cx, ty, { align: "center", baseline: "top" });
           }
 
-          // --- footer NEW + Country ---
-          doc.setFontSize(6.5);
-          doc.text("NEW", x0+PAD, y0+LABEL.h - 2);
+          // 4) Footer: NEW bottom-left, COUNTRY bottom-right
+          doc.setFontSize(FOOTER_FONT);
+          doc.text("NEW", x0 + PAD, y0 + LABEL.h - 2);
           if (country) {
-            doc.text(country.toUpperCase(), x0+LABEL.w - PAD, y0+LABEL.h - 2, { align:"right" });
+            doc.text(country.toUpperCase(), x0 + LABEL.w - PAD, y0 + LABEL.h - 2, { align: "right" });
           }
+
+          // // Debug cut box:
+          // doc.setLineWidth(0.15); doc.rect(x0, y0, LABEL.w, LABEL.h);
         }
       }
 
-      doc.save(`${sku||"labels"}.pdf`);
+      doc.save(`${sku || "labels"}.pdf`);
     }
+
     run();
   </script>
 </body>
