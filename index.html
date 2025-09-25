@@ -2,204 +2,188 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>FNSKU Labels – Vector Black & White</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
-  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js" defer></script>
-  <script src="https://cdn.jsdelivr.net/npm/svg2pdf.js@2.2.1/dist/svg2pdf.min.js" defer></script>
-  <style>
-    /* keep SVG offscreen */
-    #bcsvg{position:absolute; left:-9999px; top:-9999px; width:0; height:0;}
-  </style>
+  <title>FNSKU Labels – Auto-fit</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
 </head>
 <body>
-  <!-- Bars-only SVG target (no text) so we get pure vector black bars -->
-  <svg id="bcsvg"></svg>
+  <!-- Bars-only canvas; FNSKU text is drawn by jsPDF (crisp) -->
+  <canvas id="barcode" width="2400" height="600" style="display:none"></canvas>
 
   <script>
-    // Wait until external scripts are loaded
-    window.addEventListener('load', () => {
-      // -------- Page & label geometry --------
-      const A4 = { w: 210, h: 297 };           // mm
-      const LABEL = { w: 47.8, h: 28.2 };      // mm (exact)
-      const COLS = 4, ROWS = 10;
+    // -------- Page & label geometry --------
+    const A4 = { w: 210, h: 297 };           // mm
+    const LABEL = { w: 47.8, h: 28.2 };      // mm (exact)
+    const COLS = 4, ROWS = 10;
 
-      // Gutters (spacing between labels)
-      const H_GAP = 2.0;                       // mm between columns
-      const V_GAP = 1.0;                       // mm between rows (keeps page < 297mm)
+    // Gutters (spacing between labels)
+    const H_GAP = 2.0;                       // mm between columns
+    const V_GAP = 1.0;                       // mm between rows (keeps page < 297mm)
 
-      const totalW = COLS * LABEL.w + (COLS - 1) * H_GAP;
-      const totalH = ROWS * LABEL.h + (ROWS - 1) * V_GAP;
-      const MARGIN_X = (A4.w - totalW) / 2;
-      const MARGIN_Y = (A4.h - totalH) / 2;
+    const totalW = COLS * LABEL.w + (COLS - 1) * H_GAP;
+    const totalH = ROWS * LABEL.h + (ROWS - 1) * V_GAP;
+    const MARGIN_X = (A4.w - totalW) / 2;
+    const MARGIN_Y = (A4.h - totalH) / 2;
 
-      // -------- In-label layout --------
-      const PAD = 2.8;            // mm inner padding (also provides quiet zones)
-      const BARCODE_H = 12.5;     // mm bars height
+    // -------- In-label layout --------
+    const PAD = 1.5;            // mm inner padding
+    const BARCODE_H = 11;       // mm bars height
 
-      // FNSKU line
-      const FNSKU_FONT = 7;       // pt
-      const GAP_AFTER_BARS = 0.8; // mm (bars → FNSKU)
-      const GAP_AFTER_FNSKU = 4.5;// mm (FNSKU → text stack)
+    // FNSKU line
+    const FNSKU_FONT = 7;       // pt
+    const GAP_AFTER_BARS = 0.8; // mm (bars → FNSKU)
+    const GAP_AFTER_FNSKU = 4.2;// mm (FNSKU → text stack)
 
-      // Text stack
-      const SKU_FONT = 6.2;       // pt (bold)
-      const BODY_FONT = 6.0;      // pt
-      const LINE_GAP = 2.6;       // mm between lines
+    // Text stack (auto-fit)
+    const SKU_FONT_START = 6.2; // pt (bold), min below
+    const SKU_FONT_MIN   = 5.6; // pt
+    const BODY_FONT_START = 6.0;// pt for description
+    const BODY_FONT_MIN   = 5.2;// pt for description
+    const LINE_GAP_START  = 2.6;// mm
+    const LINE_GAP_MIN    = 2.2;// mm
 
-      // Footer
-      const FOOTER_FONT = 6.5;    // pt
-      const FOOTER_OFFSET = 2.0;  // mm up from label bottom
-      const CLEAR_ABOVE_FOOTER = 3.5; // mm reserved above footer baseline
-      const UP_SHIFT = 0.8;       // mm lift for the text stack
+    // Footer
+    const FOOTER_FONT = 6.5;    // pt
+    const FOOTER_OFFSET = 2.0;  // mm up from label bottom
+    const CLEAR_ABOVE_FOOTER = 3.5; // mm reserved above footer baseline
+    const UP_SHIFT = 0.6;       // mm lift for the text stack
 
-      // -------- Helpers --------
-      const qp = new URL(location.href).searchParams;
-      const getP = (k, d="") => (qp.get(k) ?? d);
-      const decode = s => decodeURIComponent(s || "");
+    // Helpers
+    const qp = new URL(location.href).searchParams;
+    const getP = (k, d="") => (qp.get(k) ?? d);
+    const decode = s => decodeURIComponent(s || "");
 
-      function forceDownload(doc, filename) {
-        try {
-          const blob = doc.output("blob");
-          const url = URL.createObjectURL(blob);
+    function fitSingleLine(doc, text, maxWidth, sizeStart, sizeMin, step=0.2, font="helvetica", weight="bold") {
+      let size = sizeStart;
+      doc.setFont(font, weight);
+      doc.setFontSize(size);
+      while (doc.getTextWidth(text) > maxWidth && size > sizeMin) {
+        size -= step;
+        doc.setFontSize(size);
+      }
+      return size;
+    }
 
-          // 1) try <a download>
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = filename;
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-
-          // 2) iOS/Safari fallback (no download support)
-          // Open in new tab so user can "Share/Save"
-          setTimeout(() => {
-            URL.revokeObjectURL(url);
-          }, 2000);
-
-        } catch (err) {
-          // 3) Final fallback
-          doc.save(filename);
+    function wrapAndFitDesc(doc, text, maxWidth, maxLines, sizeStart, sizeMin, lineGapStart, lineGapMin) {
+      let size = sizeStart, lg = lineGapStart;
+      let lines = doc.splitTextToSize(text, maxWidth);
+      while ((lines.length > maxLines) && (size > sizeMin || lg > lineGapMin)) {
+        if (size > sizeMin) size -= 0.2;
+        else if (lg > lineGapMin) lg -= 0.1;
+        doc.setFontSize(size);
+        lines = doc.splitTextToSize(text, maxWidth);
+      }
+      if (lines.length > maxLines) {
+        // Ellipsize last line
+        let last = lines[maxLines-1];
+        const ell = "…";
+        while (doc.getTextWidth(last + ell) > maxWidth && last.length > 0) {
+          last = last.slice(0, -1);
         }
+        lines = lines.slice(0, maxLines-1).concat(last + ell);
+      }
+      return { lines, size, lineGap: lg };
+    }
+
+    async function run(){
+      const sku     = getP("sku", "");
+      const desc    = decode(getP("desc", ""));
+      const country = getP("country", "");
+      const fnsku   = getP("fnsku", "");
+
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ unit: "mm", format: "a4", compress: true });
+
+      // Barcode bars (no text in image)
+      const bc = document.getElementById("barcode");
+      let barcodeImg = null;
+      if (fnsku) {
+        JsBarcode(bc, fnsku, {
+          format: "code128",
+          displayValue: false,
+          margin: 0,
+          width: 1.2,
+          height: Math.round(BARCODE_H * 3.78)
+        });
+        barcodeImg = bc.toDataURL("image/png");
       }
 
-      function run(){
-        const sku     = getP("sku", "");
-        const desc    = decode(getP("desc", ""));
-        const country = getP("country", "");
-        const fnsku   = getP("fnsku", "");
+      // Draw grid with gutters
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const x0 = MARGIN_X + c * (LABEL.w + H_GAP);
+          const y0 = MARGIN_Y + r * (LABEL.h + V_GAP);
+          const cx = x0 + LABEL.w / 2;
+          const maxTextW = LABEL.w - 2 * PAD;
 
-        const { jsPDF } = window.jspdf;
-        const doc = new jsPDF({ unit: "mm", format: "a4", compress: true });
-        doc.setFont("helvetica", "normal");
-
-        // --- Build a vector barcode (SVG, bars only) ---
-        const bcSVG = document.getElementById("bcsvg");
-        bcSVG.innerHTML = ""; // reset
-        if (fnsku) {
-          JsBarcode(bcSVG, fnsku, {
-            format: "code128",
-            displayValue: false,
-            margin: 0,
-            width: 1.25,               // ≈ 0.33 mm X-dimension
-            height: Math.round(BARCODE_H * 3.78)
-          });
-          // Ensure pure black bars
-          bcSVG.querySelectorAll("*").forEach(el => {
-            el.setAttribute("fill", "#000");
-            el.setAttribute("stroke", "none");
-          });
-        }
-
-        // --- Draw grid with gutters ---
-        for (let r = 0; r < ROWS; r++) {
-          for (let c = 0; c < COLS; c++) {
-            const x0 = MARGIN_X + c * (LABEL.w + H_GAP);
-            const y0 = MARGIN_Y + r * (LABEL.h + V_GAP);
-            const cx = x0 + LABEL.w / 2;
-            const maxTextW = LABEL.w - 2 * PAD;
-
-            // 1) Bars (vector via svg2pdf)
-            if (fnsku) {
-              const bx = x0 + PAD;
-              const by = y0 + PAD;
-              const bw = LABEL.w - 2 * PAD;
-              const bh = BARCODE_H;
-              window.svg2pdf(bcSVG, doc, { x: bx, y: by, width: bw, height: bh });
-            }
-
-            // 2) Footer (NEW / COUNTRY)
-            const footerY = y0 + LABEL.h - FOOTER_OFFSET;
-            doc.setFont("helvetica", "normal");
-            doc.setFontSize(FOOTER_FONT);
-            doc.text("NEW", x0 + PAD, footerY);
-            if (country) doc.text(country.toUpperCase(), x0 + LABEL.w - PAD, footerY, { align: "right" });
-
-            // 3) FNSKU text (crisp)
-            if (fnsku) {
-              doc.setFont("helvetica", "normal");
-              doc.setFontSize(FNSKU_FONT);
-              const fnskuY = y0 + PAD + BARCODE_H + GAP_AFTER_BARS;
-              doc.text(fnsku, cx, fnskuY, { align: "center", baseline: "top" });
-            }
-
-            // 4) Text stack: SKU (bold) then Description lines (centered)
-            const parts = (desc || "").split(",");
-            const desc1 = parts[0] ? parts[0].trim() : "";
-            const desc2 = parts[1] ? parts[1].trim() : "";
-
-            let startY = y0 + PAD + BARCODE_H + GAP_AFTER_BARS + GAP_AFTER_FNSKU - UP_SHIFT;
-
-            // keep safely above footer
-            const stackCount = [sku ? "1" : null, desc1 || null, desc2 || null].filter(Boolean).length;
-            const needed = (stackCount > 1) ? ((stackCount - 1) * LINE_GAP) : 0;
-            const maxTopY = footerY - CLEAR_ABOVE_FOOTER - needed;
-            if (startY > maxTopY) startY = Math.max(y0 + PAD + BARCODE_H + 0.8, maxTopY);
-
-            // SKU (bold)
-            let ty = startY;
-            if (sku) {
-              doc.setFont("helvetica", "bold");
-              doc.setFontSize(SKU_FONT);
-              while (doc.getTextWidth(sku) > maxTextW && doc.getFontSize() > 5.4) {
-                doc.setFontSize(doc.getFontSize() - 0.2);
-              }
-              doc.text(sku, cx, ty, { align: "center", baseline: "top" });
-              ty += LINE_GAP;
-            }
-
-            // Description (up to 2 lines, centered)
-            doc.setFont("helvetica", "normal");
-            doc.setFontSize(BODY_FONT);
-            const combined = [desc1, desc2].filter(Boolean).join(" ");
-            let lines = doc.splitTextToSize(combined, maxTextW);
-            if (lines.length > 2) {
-              while (lines.length > 2 && doc.getFontSize() > 5.2) {
-                doc.setFontSize(doc.getFontSize() - 0.2);
-                lines = doc.splitTextToSize(combined, maxTextW);
-              }
-              if (lines.length > 2) {
-                let last = lines[1];
-                while (doc.getTextWidth(last + "…") > maxTextW && last.length) last = last.slice(0,-1);
-                lines = [lines[0], last + "…"];
-              }
-            }
-            for (const line of lines) {
-              doc.text(line, cx, ty, { align: "center", baseline: "top" });
-              ty += LINE_GAP;
-            }
-
-            // // Debug: outline label box
-            // doc.setLineWidth(0.15); doc.rect(x0, y0, LABEL.w, LABEL.h);
+          // --- 1) Bars ---
+          if (barcodeImg) {
+            const bw = LABEL.w - 2 * PAD;
+            doc.addImage(barcodeImg, "PNG", x0 + PAD, y0 + PAD, bw, BARCODE_H);
           }
-        }
 
-        // ---- Force immediate download (robust) ----
-        const filename = `${(getP("sku", "labels") || "labels")}.pdf`;
-        forceDownload(doc, filename);
+          // --- 2) Footer (NEW / COUNTRY) ---
+          const footerY = y0 + LABEL.h - FOOTER_OFFSET;
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(FOOTER_FONT);
+          doc.text("NEW", x0 + PAD, footerY);
+          if (country) doc.text(country.toUpperCase(), x0 + LABEL.w - PAD, footerY, { align: "right" });
+
+          // --- 3) FNSKU text (crisp) ---
+          if (fnsku) {
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(FNSKU_FONT);
+            const fnskuY = y0 + PAD + BARCODE_H + GAP_AFTER_BARS;
+            doc.text(fnsku, cx, fnskuY, { align: "center", baseline: "top" });
+          }
+
+          // --- 4) Build the stack: SKU (bold) then Description (wrapped) ---
+          const parts = (desc || "").split(",");
+          const desc1 = parts[0] ? parts[0].trim() : "";
+          const desc2 = parts[1] ? parts[1].trim() : "";
+          const descCombined = [desc1, desc2].filter(Boolean).join(" ");
+
+          // Fit SKU to one line
+          let skuFont = SKU_FONT_START;
+          if (sku) skuFont = fitSingleLine(doc, sku, maxTextW, SKU_FONT_START, SKU_FONT_MIN, 0.2, "helvetica", "bold");
+
+          // Fit description to 1–2 lines
+          doc.setFont("helvetica", "normal");
+          let { lines: descLines, size: bodyFont, lineGap } =
+            wrapAndFitDesc(doc, descCombined, maxTextW, 2, BODY_FONT_START, BODY_FONT_MIN, LINE_GAP_START, LINE_GAP_MIN);
+
+          // Compute vertical placement (keep above footer)
+          let startY = y0 + PAD + BARCODE_H + GAP_AFTER_BARS + GAP_AFTER_FNSKU - UP_SHIFT;
+          const needed = (sku ? 1 : 0) * lineGap + (descLines.length ? (descLines.length - 1) * lineGap : 0);
+          const maxTopY = footerY - CLEAR_ABOVE_FOOTER - needed;
+          if (startY > maxTopY) startY = Math.max(y0 + PAD + BARCODE_H + 0.8, maxTopY);
+
+          // Draw SKU (bold, centered)
+          let ty = startY;
+          if (sku) {
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(skuFont);
+            doc.text(sku, cx, ty, { align: "center", baseline: "top" });
+            ty += lineGap;
+          }
+
+          // Draw description (wrapped, centered)
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(bodyFont);
+          for (const line of descLines) {
+            doc.text(line, cx, ty, { align: "center", baseline: "top" });
+            ty += lineGap;
+          }
+
+          // // Debug: outline label box
+          // doc.setLineWidth(0.15); doc.rect(x0, y0, LABEL.w, LABEL.h);
+        }
       }
 
-      run();
-    });
+      doc.save(`${(sku || "labels")}.pdf`);
+    }
+
+    run();
   </script>
 </body>
 </html>
